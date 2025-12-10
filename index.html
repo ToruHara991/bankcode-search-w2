@@ -1,0 +1,386 @@
+﻿<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>金融機構代碼【批次】自動查詢系統</title>
+    <script src="bankcode.js"></script>
+    <style>
+        body {
+            font-family: "Microsoft JhengHei", "Heiti TC", sans-serif;
+            background-color: #f0f2f5;
+            padding: 30px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #fff;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+        }
+
+        .step-box {
+            border: 2px dashed #bdc3c7;
+            padding: 25px;
+            border-radius: 8px;
+            background-color: #fafafa;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .step-box.active {
+            border-color: #3498db;
+            background-color: #ebf5fb;
+        }
+
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-size: 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            transition: background 0.3s;
+        }
+
+        .btn:hover {
+            background-color: #2980b9;
+        }
+
+        .btn:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        .btn-success {
+            background-color: #27ae60;
+        }
+
+        .btn-success:hover {
+            background-color: #219150;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+
+        th, td {
+            padding: 10px;
+            border-bottom: 1px solid #ddd;
+            text-align: left;
+        }
+
+        th {
+            background-color: #34495e;
+            color: white;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .status-badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+        }
+        .status-found { background: #d4edda; color: #155724; }
+        .status-none { background: #f8d7da; color: #721c24; }
+        .status-multi { background: #fff3cd; color: #856404; }
+
+        .hint {
+            font-size: 0.9em;
+            color: #7f8c8d;
+            margin-top: 10px;
+            text-align: left;
+        }
+        
+        .control-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            margin-bottom: 15px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>金融機構代碼【批次】自動查詢系統</h1>
+
+    <div class="step-box active" id="drop-zone">
+        <h3>STEP 1：上傳 CSV 關鍵字檔案</h3>
+        <p>格式說明：A欄=關鍵字1(如:台灣銀行)，B欄=關鍵字2(如:台南)<br>
+           <span style="font-size:12px; color:red;">* 請勿包含標題列，或勾選下方「第一列為標題」忽略它</span>
+        </p>
+        
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none;">
+        <button class="btn" onclick="document.getElementById('csvFileInput').click()">選擇檔案</button>
+        
+        <div style="margin-top:15px;">
+            <label><input type="checkbox" id="hasHeader"> 第一列是標題 (忽略第一列)</label> &nbsp;|&nbsp; 
+            <label>編碼：
+                <select id="encodingSelect">
+                    <option value="UTF-8">UTF-8 (Excel 存檔預設)</option>
+                    <option value="Big5" selected>Big5 (舊系統/Excel 常見)</option>
+                </select>
+            </label>
+        </div>
+    </div>
+
+    <div id="resultArea" style="display:none;">
+        <div class="control-panel">
+            <h3 style="margin:0;">查詢結果預覽 (<span id="resultCount">0</span> 筆)</h3>
+            <button class="btn btn-success" id="downloadBtn" onclick="downloadExcel()">下載結果 Excel</button>
+        </div>
+        
+        <div style="max-height: 500px; overflow-y: auto; border: 1px solid #ddd;">
+            <table id="previewTable">
+                <thead>
+                    <tr>
+                        <th width="10%">項次</th>
+                        <th width="20%">關鍵字 A</th>
+                        <th width="20%">關鍵字 B</th>
+                        <th width="15%">狀態</th>
+                        <th width="35%">查詢結果 (代碼 - 名稱)</th>
+                    </tr>
+                </thead>
+                <tbody id="tableBody">
+                    </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 全域變數存放處理後的資料
+    let processedData = []; 
+    let bankDB = [];
+
+    // 初始化：載入 bankcode.js 資料
+    window.addEventListener('DOMContentLoaded', () => {
+        if (typeof bankCodes === 'undefined') {
+            alert("錯誤：找不到 bankcode.js，請確認檔案位置！");
+            return;
+        }
+        // 整理 bankCodes 資料，去除多餘空白，方便比對
+        bankDB = bankCodes.map(b => ({
+            name: b['金融機構名稱'] ? b['金融機構名稱'].trim() : '',
+            code: b['金融機構代碼'] ? b['金融機構代碼'].trim() : ''
+        }));
+        console.log(`資料庫已載入 ${bankDB.length} 筆資料`);
+    });
+
+    // 監聽檔案上傳
+    document.getElementById('csvFileInput').addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        const encoding = document.getElementById('encodingSelect').value;
+
+        reader.onload = function(e) {
+            const text = e.target.result;
+            processBatch(text); // 開始批次處理
+        };
+        
+        reader.readAsText(file, encoding);
+    });
+
+    // 核心邏輯：批次比對
+    function processBatch(csvText) {
+        processedData = []; // 清空舊資料
+        const rows = csvText.split(/\r\n|\n/);
+        const hasHeader = document.getElementById('hasHeader').checked;
+        const startIndex = hasHeader ? 1 : 0; // 如果有標題，從 index 1 開始
+
+        for (let i = startIndex; i < rows.length; i++) {
+            const row = rows[i].trim();
+            if (!row) continue; // 跳過空行
+
+            // 簡單 CSV 切割 (假設無引號包裹的複雜內容)
+            const cols = row.split(',');
+            const k1 = cols[0] ? cols[0].trim() : ''; // 關鍵字 A
+            const k2 = cols[1] ? cols[1].trim() : ''; // 關鍵字 B
+
+            // 執行搜尋
+            const results = searchBank(k1, k2);
+            
+            // 儲存結果
+            processedData.push({
+                k1: k1,
+                k2: k2,
+                results: results // 這是一個陣列
+            });
+        }
+
+        renderTable();
+    }
+
+    // 單筆搜尋函數
+    function searchBank(k1, k2) {
+        // 如果兩個關鍵字都空的，就不查
+        if (!k1 && !k2) return [];
+
+        // 轉小寫比對避免大小寫問題
+        const v1 = k1.toLowerCase();
+        const v2 = k2.toLowerCase();
+
+        return bankDB.filter(bank => {
+            const name = bank.name.toLowerCase();
+            // 邏輯：如果關鍵字是空的，視為該欄位「不設限」(True)，否則需包含
+            const match1 = v1 === '' || name.includes(v1);
+            const match2 = v2 === '' || name.includes(v2);
+            return match1 && match2;
+        });
+    }
+
+    // 渲染表格
+    function renderTable() {
+        const tbody = document.getElementById('tableBody');
+        tbody.innerHTML = '';
+        
+        if (processedData.length === 0) {
+            alert("檔案中沒有讀取到有效資料，請檢查 CSV 格式或編碼。");
+            return;
+        }
+
+        processedData.forEach((item, index) => {
+            const tr = document.createElement('tr');
+            
+            // 狀態判斷
+            let statusBadge = '';
+            let resultText = '';
+            
+            if (item.results.length === 0) {
+                statusBadge = '<span class="status-badge status-none">查無</span>';
+                resultText = '無符合資料';
+            } else if (item.results.length === 1) {
+                statusBadge = '<span class="status-badge status-found">成功</span>';
+                resultText = `${item.results[0].code} - ${item.results[0].name}`;
+            } else {
+                statusBadge = `<span class="status-badge status-multi">複數(${item.results.length})</span>`;
+                // 複數結果用 <br> 換行顯示在網頁上
+                resultText = item.results.map(r => `${r.code} (${r.name})`).join('<br>');
+            }
+
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td>${item.k1}</td>
+                <td>${item.k2}</td>
+                <td>${statusBadge}</td>
+                <td>${resultText}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+
+        document.getElementById('resultArea').style.display = 'block';
+        document.getElementById('resultCount').innerText = processedData.length;
+    }
+
+    // 下載 CSV 功能
+
+// 下載 Excel 功能 (使用 HTML Table 格式偽裝，可完美保留 00 開頭且無公式)
+    function downloadExcel() {
+        if (processedData.length === 0) return;
+
+        // 1. 建立 HTML 內容的開頭，包含 meta charset UTF-8 以防亂碼
+        let excelContent = `
+            <html xmlns:o="urn:schemas-microsoft-com:office:office" 
+                  xmlns:x="urn:schemas-microsoft-com:office:excel" 
+                  xmlns="http://www.w3.org/TR/REC-html40">
+            <head>
+                <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+                <style>
+                    .text-cell { mso-number-format:"\@"; } 
+                </style>
+            </head>
+            <body>
+                <table border="1">
+                    <thead>
+                        <tr style="background-color: #f0f0f0;">
+                            <th>關鍵字A</th>
+                            <th>關鍵字B</th>
+                            <th>查詢結果(代碼)</th>
+                            <th>查詢結果(完整資訊)</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        `;
+
+        // 2. 迴圈填入資料
+        processedData.forEach(item => {
+            const k1 = item.k1 || "";
+            const k2 = item.k2 || "";
+            
+            let codeStr = '';
+            let fullStr = '';
+
+            if (item.results.length > 0) {
+                // 將代碼連接起來
+                let rawCode = item.results.map(r => r.code).join(', ');
+                // 將名稱連接起來
+                let rawName = item.results.map(r => r.name).join(', ');
+                
+                // 這裡將 class="text-cell" 套用到代碼欄位，Excel 就會把它當純文字，00 會保留
+                codeStr = `<td class="text-cell">${rawCode}</td>`;
+                fullStr = `<td>${rawCode} ${rawName}</td>`;
+            } else {
+                codeStr = `<td style="color:red;">查無資料</td>`;
+                fullStr = `<td></td>`;
+            }
+
+            excelContent += `
+                <tr>
+                    <td>${k1}</td>
+                    <td>${k2}</td>
+                    ${codeStr}
+                    ${fullStr}
+                </tr>
+            `;
+        });
+
+        // 3. 結尾標籤
+        excelContent += `
+                    </tbody>
+                </table>
+            </body>
+            </html>
+        `;
+
+        // 4. 建立 Blob 物件
+        const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        
+        // 5. 檔名加上時間戳記，副檔名改為 .xls
+        const date = new Date();
+        const dateStr = date.toISOString().slice(0,10).replace(/-/g, "");
+        link.setAttribute("download", `金融機構代碼查詢結果_${dateStr}.xls`);
+        
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    }
+</script>
+
+</body>
+</html>
