@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -297,89 +297,104 @@
 
     // 下載 CSV 功能
 
+
 // 下載 Excel 功能 (使用 HTML Table 格式偽裝，可完美保留 00 開頭且無公式)
-    function downloadExcel() {
-        if (processedData.length === 0) return;
+function downloadExcel() {
+    if (processedData.length === 0) return;
 
-        // 1. 建立 HTML 內容的開頭，包含 meta charset UTF-8 以防亂碼
-        let excelContent = `
-            <html xmlns:o="urn:schemas-microsoft-com:office:office" 
-                  xmlns:x="urn:schemas-microsoft-com:office:excel" 
-                  xmlns="http://www.w3.org/TR/REC-html40">
-            <head>
-                <meta http-equiv="content-type" content="text/html; charset=UTF-8">
-                <style>
-                    .text-cell { mso-number-format:"\@"; } 
-                </style>
-            </head>
-            <body>
-                <table border="1">
-                    <thead>
-                        <tr style="background-color: #f0f0f0;">
-                            <th>關鍵字A</th>
-                            <th>關鍵字B</th>
-                            <th>查詢結果(代碼)</th>
-                            <th>查詢結果(完整資訊)</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-        `;
+    // 1. 建立 HTML 內容的開頭，包含 meta charset UTF-8 以防亂碼
+    let excelContent = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" 
+              xmlns:x="urn:schemas-microsoft-com:office:excel" 
+              xmlns="http://www.w3.org/TR/REC-html40">
+        <head>
+            <meta http-equiv="content-type" content="text/html; charset=UTF-8">
+            <style>
+                /* 這段樣式是讓 Excel 把資料當成「文字」而非數字，才能保留 00 開頭 */
+                .text-cell { mso-number-format:"\\@"; } 
+            </style>
+        </head>
+        <body>
+            <table border="1">
+                <thead>
+                    <tr style="background-color: #f0f0f0;">
+                        <th>關鍵字A</th>
+                        <th>關鍵字B</th>
+                        <th>查詢結果(代碼)</th>
+                        <th>7+2碼代碼給出納</th> 
+                        <th>查詢結果(完整資訊)</th>
+                    </tr>
+                </thead>
+                <tbody>
+    `;
 
-        // 2. 迴圈填入資料
-        processedData.forEach(item => {
-            const k1 = item.k1 || "";
-            const k2 = item.k2 || "";
+    // 2. 迴圈填入資料
+    processedData.forEach(item => {
+        const k1 = item.k1 || "";
+        const k2 = item.k2 || "";
+        
+        let codeStr = '';       // 查詢結果(代碼)
+        let fullStr = '';       // 查詢結果(完整資訊)
+        let td7Plus2 = '';      // 7+2碼代碼給出納
+
+        if (item.results.length > 0) {
+            // 原始的 7 碼代碼，連接起來 (例如: "001, 002")
+            let rawCode = item.results.map(r => r.code).join(', ');
             
-            let codeStr = '';
-            let fullStr = '';
+            // 新增的 7+2 碼代碼，前面加上 "00" (例如: "00001, 00002")
+            // 注意：這裡只對第一個結果的代碼進行前綴處理，因為實際使用時通常只會有一個代碼
+            // 如果有多個結果，則將所有代碼都加上 '00' 前綴後連接。
+            let raw7Plus2 = item.results.map(r => "00" + r.code).join(', ');
 
-            if (item.results.length > 0) {
-                // 將代碼連接起來
-                let rawCode = item.results.map(r => r.code).join(', ');
-                // 將名稱連接起來
-                let rawName = item.results.map(r => r.name).join(', ');
-                
-                // 這裡將 class="text-cell" 套用到代碼欄位，Excel 就會把它當純文字，00 會保留
-                codeStr = `<td class="text-cell">${rawCode}</td>`;
-                fullStr = `<td>${rawCode} ${rawName}</td>`;
-            } else {
-                codeStr = `<td style="color:red;">查無資料</td>`;
-                fullStr = `<td></td>`;
-            }
+            // 這裡將 class="text-cell" 套用到代碼欄位，Excel 就會把它當純文字，00 會保留
+            codeStr = `<td class="text-cell">${rawCode}</td>`;
+            
+            // 新增的欄位同樣套用 text-cell 樣式，確保 "00" 不被 Excel 吃掉
+            td7Plus2 = `<td class="text-cell">${raw7Plus2}</td>`;
+            
+            // 完整資訊
+            let rawName = item.results.map(r => r.name).join(', ');
+            fullStr = `<td>${rawCode} ${rawName}</td>`;
+        } else {
+            codeStr = `<td style="color:red;">查無資料</td>`;
+            td7Plus2 = `<td></td>`; // 查無資料時留空
+            fullStr = `<td></td>`;
+        }
 
-            excelContent += `
-                <tr>
-                    <td>${k1}</td>
-                    <td>${k2}</td>
-                    ${codeStr}
-                    ${fullStr}
-                </tr>
-            `;
-        });
-
-        // 3. 結尾標籤
         excelContent += `
-                    </tbody>
-                </table>
-            </body>
-            </html>
+            <tr>
+                <td>${k1}</td>
+                <td>${k2}</td>
+                ${codeStr}
+                ${td7Plus2}
+                ${fullStr}
+            </tr>
         `;
+    });
 
-        // 4. 建立 Blob 物件
-        const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        
-        // 5. 檔名加上時間戳記，副檔名改為 .xls
-        const date = new Date();
-        const dateStr = date.toISOString().slice(0,10).replace(/-/g, "");
-        link.setAttribute("download", `金融機構代碼查詢結果_${dateStr}.xls`);
-        
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    }
+    // 3. 結尾標籤
+    excelContent += `
+                </tbody>
+            </table>
+        </body>
+        </html>
+    `;
+
+    // 4. 建立 Blob 物件
+    const blob = new Blob([excelContent], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    
+    // 5. 檔名加上時間戳記，副檔名改為 .xls
+    const date = new Date();
+    const dateStr = date.toISOString().slice(0,10).replace(/-/g, "");
+    link.setAttribute("download", `金融機構代碼查詢結果_${dateStr}.xls`);
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
 </script>
 
 </body>
